@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  macOS-tests:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run Test Suite (with slow tests)
+      env:
+        RUN_SLOW_TESTS: "1"
+      run: swift test
+
+  tsan-concurrency:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run Concurrency Tests with Thread Sanitizer
+      run: swift test --filter ConcurrencyTests --sanitize=thread
+
+  iOS-build:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: 'latest-stable'
+    - name: Build for iOS Simulator
+      run: xcodebuild build -scheme VectorDB -destination 'generic/platform=iOS Simulator'

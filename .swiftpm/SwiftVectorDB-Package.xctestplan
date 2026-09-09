@@ -1,0 +1,36 @@
+{
+  "configurations" : [
+    {
+      "id" : "2A4A7816-FFE7-4D7C-8615-1E4EB8C0D5FC",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "environmentVariableEntries" : [
+      {
+        "key" : "RUN_SLOW_TESTS",
+        "value" : "1"
+      }
+    ],
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:",
+      "identifier" : "VectorDBBenchmarks",
+      "name" : "VectorDBBenchmarks"
+    },
+    "threadSanitizerEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "VectorDBTests",
+        "name" : "VectorDBTests"
+      }
+    }
+  ],
+  "version" : 1
+}
