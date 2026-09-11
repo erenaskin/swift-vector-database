@@ -159,9 +159,12 @@ public final class VectorStorage {
             oldPtr.deallocate()
             self.allocation = .heap(newBuffer)
         case .mapped:
-            // A mapped file cannot be grown locally by VectorStorage because it is interleaved 
-            // with GraphStorage sections. Resizing the file is the PersistenceManager's job.
-            fatalError("Memory-mapped VectorStorage cannot grow independently.")
+            // Task 5: Fall back to heap allocation instead of crashing.
+            let newBuffer = UnsafeMutablePointer<Float>.allocate(capacity: newCapacity * dimension)
+            // self.buffer automatically resolves to the correct mapped pointer
+            newBuffer.update(from: self.buffer, count: count * dimension)
+            // Leave the MappedFile alone (don't deallocate it since it's shared)
+            self.allocation = .heap(newBuffer)
         }
         
         capacity = newCapacity

@@ -41,6 +41,12 @@ final class Engine {
         }
     }
 
+    func getVector(internalID: Int32) -> [Float]? {
+        return rwlock.withRead {
+            return router.getVector(internalID: internalID)
+        }
+    }
+
     func remove(internalID: Int32) throws {
         try rwlock.withWrite {
             try router.remove(internalID: internalID)
@@ -159,6 +165,26 @@ final class Engine {
     func collectLiveSnapshots() -> [(id: Int32, level: Int, vector: [Float])] {
         return rwlock.withRead {
             router.collectLiveSnapshots()
+        }
+    }
+
+    // MARK: - Inspector Methods
+    
+    func inspectEntryPoint() -> Int32? {
+        return rwlock.withRead {
+            return router.inspectEntryPoint()
+        }
+    }
+    
+    func inspectNodeLevel(internalID: Int32) -> Int? {
+        return rwlock.withRead {
+            return router.inspectNodeLevel(internalID: internalID)
+        }
+    }
+    
+    func inspectNeighbors(internalID: Int32, atLayer layer: Int) -> [Int32]? {
+        return rwlock.withRead {
+            return router.inspectNeighbors(internalID: internalID, atLayer: layer)
         }
     }
 }

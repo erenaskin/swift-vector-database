@@ -110,6 +110,13 @@ struct IndexRouter {
         }
     }
 
+    func getVector(internalID: Int32) -> [Float]? {
+        switch index {
+        case .flat(let flat): return flat.getVector(internalID: internalID)
+        case .hnsw(let hnsw): return hnsw.getVector(internalID: internalID)
+        }
+    }
+
     mutating func remove(internalID: Int32) throws {
         switch index {
         case .flat(var flat):
@@ -182,5 +189,28 @@ struct IndexRouter {
             result.append((id: id, level: node.level, vector: vec))
         }
         return result
+    }
+    
+    // MARK: - Inspector Methods
+    
+    func inspectEntryPoint() -> Int32? {
+        guard case .hnsw(let hnsw) = index else { return nil }
+        // The entryPoint in HNSWIndex could be nil if the graph is empty or entirely tombstoned
+        return hnsw.entryPoint
+    }
+    
+    func inspectNodeLevel(internalID: Int32) -> Int? {
+        guard case .hnsw(let hnsw) = index else { return nil }
+        guard let node = hnsw.nodes[internalID], !hnsw.tombstoned.contains(internalID) else { return nil }
+        return node.level
+    }
+    
+    func inspectNeighbors(internalID: Int32, atLayer layer: Int) -> [Int32]? {
+        guard case .hnsw(let hnsw) = index else { return nil }
+        guard let node = hnsw.nodes[internalID], !hnsw.tombstoned.contains(internalID) else { return nil }
+        guard layer >= 0, layer <= node.level else { return nil }
+        
+        let rawNeighbors = hnsw.graphStorage.neighbors(of: node.vectorSlot, at: layer)
+        return rawNeighbors.filter { !hnsw.tombstoned.contains($0) }
     }
 }

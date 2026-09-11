@@ -224,9 +224,34 @@ final class GraphStorage {
                 allocation = .heap(layer0: l0, upperLayers: upperLayers)
             }
         case .mapped:
-            // Mapped graph sections are pre-allocated by the PersistenceManager's file layout.
-            while neighborCounts.count <= layer {
-                neighborCounts.append([:])
+            // Task 5 & Adım 4: Mapped graph sections are pre-allocated by the PersistenceManager's file layout.
+            // If the requested layer exceeds the pre-allocated layers, the mmap region does not have space for it.
+            // We must fall back to heap allocation to prevent writing out of mmap bounds (SIGBUS / memory corruption).
+            if layer >= neighborCounts.count {
+                // 1. Copy layer 0
+                let newLayer0 = UnsafeMutablePointer<Int32>.allocate(capacity: capacity * mMax0)
+                newLayer0.initialize(from: self.layer0, count: capacity * mMax0)
+                
+                // 2. Copy existing upper layers
+                var newUpperLayers: [UnsafeMutablePointer<Int32>] = []
+                let numUpperLayers = neighborCounts.count - 1
+                for uIdx in 0..<numUpperLayers {
+                    let oldLayer = upperLayerPointer(uIdx + 1)
+                    let newLayer = UnsafeMutablePointer<Int32>.allocate(capacity: capacity * m)
+                    newLayer.initialize(from: oldLayer, count: capacity * m)
+                    newUpperLayers.append(newLayer)
+                }
+                
+                // 3. Allocate NEW upper layers up to the requested layer
+                while newUpperLayers.count < layer {
+                    let newLayer = UnsafeMutablePointer<Int32>.allocate(capacity: capacity * m)
+                    newLayer.initialize(repeating: Self.emptySlot, count: capacity * m)
+                    newUpperLayers.append(newLayer)
+                    neighborCounts.append([:])
+                }
+                
+                // Switch to heap allocation (safely detaches from the mapped file for adjacency storage)
+                self.allocation = .heap(layer0: newLayer0, upperLayers: newUpperLayers)
             }
         }
     }
@@ -255,9 +280,26 @@ final class GraphStorage {
             self.allocation = .heap(layer0: newLayer0, upperLayers: newUpperLayers)
             
         case .mapped:
-            // A mapped file cannot be grown locally by GraphStorage because it is interleaved 
-            // with VectorStorage sections. Resizing the file is the PersistenceManager's job.
-            fatalError("Memory-mapped GraphStorage cannot grow independently.")
+            // Task 5: Fall back to heap allocation instead of crashing.
+            
+            // 1. Copy layer 0
+            let newLayer0 = UnsafeMutablePointer<Int32>.allocate(capacity: newCapacity * mMax0)
+            newLayer0.initialize(repeating: Self.emptySlot, count: newCapacity * mMax0)
+            newLayer0.update(from: self.layer0, count: capacity * mMax0)
+            
+            // 2. Copy any existing upper layers
+            var newUpperLayers: [UnsafeMutablePointer<Int32>] = []
+            let numUpperLayers = neighborCounts.count - 1 // neighborCounts has entry for layer0 + upper layers
+            for uIdx in 0..<numUpperLayers {
+                let oldLayer = upperLayerPointer(uIdx + 1)
+                let newLayer = UnsafeMutablePointer<Int32>.allocate(capacity: newCapacity * m)
+                newLayer.initialize(repeating: Self.emptySlot, count: newCapacity * m)
+                newLayer.update(from: oldLayer, count: capacity * m)
+                newUpperLayers.append(newLayer)
+            }
+            
+            // Leave the MappedFile alone (don't deallocate it)
+            self.allocation = .heap(layer0: newLayer0, upperLayers: newUpperLayers)
         }
         
         capacity = newCapacity

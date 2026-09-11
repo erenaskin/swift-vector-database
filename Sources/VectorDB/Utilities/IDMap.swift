@@ -33,6 +33,35 @@ struct IDMap: Codable {
     /// Number of live (non-removed) mappings.
     var count: Int { stringToInt.count }
 
+    /// Returns a paginated list of live external IDs in insertion order.
+    ///
+    /// Trade-off: To avoid O(N log N) sorting and O(N) memory allocations,
+    /// we iterate through the internal ID sequence (0..<nextID).
+    /// This gives deterministic insertion order and takes O(offset + limit) time
+    /// and O(limit) memory. For typical small-to-medium datasets, this is
+    /// fast enough and strictly bounds memory usage.
+    func listExternalIDs(offset: Int, limit: Int) -> [String] {
+        guard offset >= 0, limit > 0, offset < count else { return [] }
+        
+        var result: [String] = []
+        result.reserveCapacity(min(limit, count - offset))
+        
+        var liveSeen = 0
+        // Iterate through all possible internal IDs in insertion order
+        for id in 0..<nextID {
+            if let externalID = intToString[id] {
+                if liveSeen >= offset {
+                    result.append(externalID)
+                    if result.count == limit {
+                        break
+                    }
+                }
+                liveSeen += 1
+            }
+        }
+        return result
+    }
+
     // MARK: - ID Assignment
 
     /// Assigns a new monotonically increasing Int32 ID to `externalID`.

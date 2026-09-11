@@ -231,6 +231,8 @@ final class PersistenceManager {
         index.entryPoint = tail.entryPoint == -1 ? nil : tail.entryPoint
         index.entryPointLevel = tail.entryPointLevel
         
+        var idMap = tail.idMap
+        
         // Replay WAL
         if let records = try wal?.readAll(), !records.isEmpty {
             for record in records {
@@ -243,10 +245,17 @@ final class PersistenceManager {
                     }
                 } else if record.opcode == .delete {
                     try? index.remove(internalID: record.internalID)
+                    if let externalID = idMap.externalID(for: record.internalID) {
+                        try? idMap.remove(externalID: externalID)
+                    }
+                } else if record.opcode == .updateMetadata {
+                    if let externalID = idMap.externalID(for: record.internalID) {
+                        try? idMap.updateMetadata(for: externalID, metadata: record.metadata)
+                    }
                 }
             }
         }
         
-        return (index, tail.idMap)
+        return (index, idMap)
     }
 }

@@ -124,6 +124,12 @@ public struct FlatIndex: VectorIndex {
         return Array(scored.prefix(k))
     }
 
+    public func getVector(internalID: Int32) -> [Float]? {
+        guard let slot = idToSlot[internalID] else { return nil }
+        let ptr = storage.pointer(toSlot: slot)
+        return Array(UnsafeBufferPointer(start: ptr, count: dimension))
+    }
+
     // MARK: - Migration helper
 
     /// Re-inserts every vector currently in this FlatIndex into a fresh `HNSWIndex`.

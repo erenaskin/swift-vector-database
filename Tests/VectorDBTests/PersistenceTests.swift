@@ -159,4 +159,73 @@ final class PersistenceTests: XCTestCase {
         }
         XCTAssertEqual(loadedIndex.count, 1) // 99 was loaded successfully
     }
+    
+    // MARK: - Task 5 Tests
+    
+    func testMappedVectorDBGrowDoesNotCrash() async throws {
+        // 1. First instance: create and save with some capacity
+        // Default capacity is 1024. We insert 1025 to force a growth to 2048 in heap mode,
+        // then save it. The saved file will have capacity 2048.
+        let db1 = try VectorDB(dimension: 2, metric: .euclidean, path: dbURL)
+        for i in 1...1025 {
+            try await db1.insert(id: "v\(i)", vector: [Float(i), Float(i)])
+        }
+        try await db1.save()
+        await db1.close()
+        
+        // 2. Second instance: open mapped, then insert enough to exceed 2048
+        // We will insert up to 2049. This triggers grow() while mapped.
+        let db2 = try VectorDB(dimension: 2, metric: .euclidean, path: dbURL)
+        for i in 1026...2049 {
+            try await db2.insert(id: "v\(i)", vector: [Float(i), Float(i)])
+        }
+        
+        // Assert we can search a new vector
+        let results2 = try await db2.search(query: [2049.0, 2049.0], k: 1)
+        XCTAssertEqual(results2.first?.id, "v2049", "Should find newly inserted vector after mapped growth")
+        
+        // Save and close
+        try await db2.save()
+        await db2.close()
+        
+        // 3. Third instance: open again and verify
+        let db3 = try VectorDB(dimension: 2, metric: .euclidean, path: dbURL)
+        let results3 = try await db3.search(query: [2049.0, 2049.0], k: 1)
+        XCTAssertEqual(results3.first?.id, "v2049", "Should survive a full round-trip after mapped growth")
+        
+        let results1 = try await db3.search(query: [1.0, 1.0], k: 1)
+        XCTAssertEqual(results1.first?.id, "v1", "Original vectors should still be searchable")
+        await db3.close()
+    }
+    
+    func testMappedGraphStorageGrowWithUpperLayers() async throws {
+        // HNSW threshold is 2000. We need to insert > 2000 vectors to build upper layers.
+        // We insert 2049 vectors. Capacity becomes 4096.
+        let db1 = try VectorDB(dimension: 2, metric: .euclidean, path: dbURL)
+        for i in 1...2049 {
+            try await db1.insert(id: "v\(i)", vector: [Float(i), Float(i)])
+        }
+        try await db1.save()
+        await db1.close()
+        
+        // Open mapped, insert to exceed 4096 capacity.
+        // We will insert up to 4097. This triggers GraphStorage grow() on mapped upper layers!
+        let db2 = try VectorDB(dimension: 2, metric: .euclidean, path: dbURL)
+        for i in 2050...4097 {
+            try await db2.insert(id: "v\(i)", vector: [Float(i), Float(i)])
+        }
+        
+        // Verify search uses the graph properly (HNSW search)
+        let results2 = try await db2.search(query: [4097.0, 4097.0], k: 1)
+        XCTAssertEqual(results2.first?.id, "v4097")
+        
+        try await db2.save()
+        await db2.close()
+        
+        // Open third instance
+        let db3 = try VectorDB(dimension: 2, metric: .euclidean, path: dbURL)
+        let results3 = try await db3.search(query: [4097.0, 4097.0], k: 1)
+        XCTAssertEqual(results3.first?.id, "v4097")
+        await db3.close()
+    }
 }

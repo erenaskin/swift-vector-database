@@ -219,6 +219,12 @@ public struct HNSWIndex: VectorIndex {
         return Array(liveResults.prefix(k)).map { ($0.id, $0.score) }
     }
 
+    public func getVector(internalID: Int32) -> [Float]? {
+        guard let node = nodes[internalID], !tombstoned.contains(internalID) else { return nil }
+        let ptr = vectorStorage.pointer(toSlot: Int(node.vectorSlot))
+        return Array(UnsafeBufferPointer(start: ptr, count: dimension))
+    }
+
     // MARK: - §8.4 Level Assignment
 
     /// Malkov & Yashunin's exponential decay level assignment (§8.4).

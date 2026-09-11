@@ -85,4 +85,114 @@ final class RebuildTests: XCTestCase {
         print("Recall after rebuild: \(recall)")
         XCTAssertGreaterThan(recall, 0.95, "Recall dropped below 0.95 after rebuild!")
     }
+    
+    // MARK: - Task 4: VectorDB Actor Level Tests
+    
+    func testAutomaticRebuildOnDelete() async throws {
+        // hnswThreshold is 2000. Insert 2005 to trigger HNSW mode.
+        let db = try VectorDB(dimension: 2, metric: .dotProduct, parameters: HNSWParameters(M: 16, efConstruction: 100))
+        for i in 1...2005 {
+            try await db.insert(id: "v\(i)", vector: [Float(i), Float(i)])
+        }
+        
+        // Threshold is 20% of 2005 = 401. 
+        // Delete 400. 400 < 20%
+        for i in 1...400 {
+            try await db.delete(id: "v\(i)")
+        }
+        var stats = await db.stats()
+        XCTAssertEqual(stats.tombstonedCount, 400)
+        
+        // Delete 1 more. 401/2005 >= 20%, so automatic rebuild triggers
+        try await db.delete(id: "v401")
+        stats = await db.stats()
+        
+        // After rebuild, tombstonedCount should be 0
+        XCTAssertEqual(stats.tombstonedCount, 0, "Automatic rebuild should have triggered and cleared tombstones")
+        XCTAssertEqual(stats.liveCount, 2005 - 401)
+    }
+    
+    func testAutomaticRebuildOnUpdate() async throws {
+        let db = try VectorDB(dimension: 2, metric: .dotProduct, parameters: HNSWParameters(M: 16, efConstruction: 100))
+        for i in 1...2005 {
+            try await db.insert(id: "v\(i)", vector: [Float(i), Float(i)])
+        }
+        
+        // update adds 1 tombstone but keeps liveCount at 2005
+        // ratio = tombstones / (liveCount + tombstones)
+        // 20% threshold: T / (2005 + T) = 0.2 => T = 501.25
+        // So 501 updates = 501 / 2506 = 19.99% < 20%
+        for i in 1...501 {
+            try await db.update(id: "v\(i)", vector: [1.1, 1.1])
+        }
+        var stats = await db.stats()
+        XCTAssertEqual(stats.tombstonedCount, 501)
+        
+        // 502 updates = 502 / 2507 = 20.02% >= 20% -> triggers rebuild!
+        try await db.update(id: "v502", vector: [2.2, 2.2])
+        stats = await db.stats()
+        
+        XCTAssertEqual(stats.tombstonedCount, 0, "Automatic rebuild should have triggered and cleared tombstones")
+        XCTAssertEqual(stats.liveCount, 2005)
+    }
+    
+    func testManualCompactNoOp() async throws {
+        let db = try VectorDB(dimension: 2, metric: .dotProduct, parameters: HNSWParameters(M: 16, efConstruction: 100))
+        for i in 1...2005 {
+            try await db.insert(id: "v\(i)", vector: [Float(i), Float(i)])
+        }
+        for i in 1...100 {
+            try await db.delete(id: "v\(i)")
+        }
+        
+        let stats = await db.stats()
+        XCTAssertEqual(stats.tombstonedCount, 100) // ~5%
+        
+        let compacted = try await db.compact()
+        XCTAssertFalse(compacted, "Should return false if ratio is below threshold")
+        
+        let postStats = await db.stats()
+        XCTAssertEqual(postStats.tombstonedCount, 100, "Should not rebuild if ratio is below threshold")
+    }
+    
+    func testManualCompactTriggersRebuild() async throws {
+        // We need to bypass the automatic trigger to test the manual trigger.
+        // Wait, if automatic trigger fires on delete, how can we have a DB above threshold without triggering it?
+        // Let's insert 5. Threshold is 20%.
+        // Wait, the automatic trigger ALWAYS keeps the database below the threshold!
+        // To test the manual trigger, we can lower the threshold via Engine? 
+        // Wait, Engine.shouldRebuild uses a hardcoded 0.20 threshold.
+        // If automatic rebuild is on, `compact()` will NEVER return true in normal usage unless an insert/update somehow fails halfway or we do batch deletes? Wait, delete calls it.
+        // Is there any way to get the tombstone ratio to 20% without going through delete/update?
+        // No, because idMap only lets you delete via delete/update.
+        // Wait... test testManualCompactTriggersRebuild is explicitly requested: "A test that manually calls compact() right after crossing the threshold (simulating a developer who wants to force it) and asserts it returns true."
+        // Wait, if it crosses the threshold, the automatic trigger fires first!
+        // Is it possible the spec author missed this logical contradiction? "A test that manually calls compact() right after crossing the threshold ... and asserts it returns true."
+        // Since delete/update trigger it automatically, compact() will return false.
+        // Wait, what if we use reflection to set engine's tombstone count, or bypass VectorDB?
+        // Let's use Mirror to extract `engine` and insert/remove directly, then call `db.compact()`!
+        
+        let db = try VectorDB(dimension: 2, metric: .dotProduct)
+        for i in 1...2005 {
+            try await db.insert(id: "v\(i)", vector: [Float(i), Float(i)])
+        }
+        
+        let mirror = Mirror(reflecting: db)
+        guard let engine = mirror.children.first(where: { $0.label == "engine" })?.value as? Engine else {
+            XCTFail()
+            return
+        }
+        
+        // Remove bypassing VectorDB auto-trigger
+        for i in 1...401 {
+            // Note: internalID maps 1-to-1 with insertions initially
+            try engine.remove(internalID: Int32(i - 1)) // 20%
+        }
+        
+        let compacted = try await db.compact()
+        XCTAssertTrue(compacted, "Should return true since threshold was met")
+        
+        let stats = await db.stats()
+        XCTAssertEqual(stats.tombstonedCount, 0)
+    }
 }

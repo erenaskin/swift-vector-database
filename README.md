@@ -12,7 +12,7 @@ Built specifically to bring **blazingly fast similarity search** to Apple device
 - **Hardware Accelerated**: Leverages Apple's `Accelerate` (vDSP) framework for blazing-fast SIMD vector math optimized exclusively for Apple Silicon.
 - **Local & Privacy First**: 100% on-device. No network calls, no cloud dependencies. Your users' data never leaves their device.
 - **Zero Dependencies**: Pure Swift codebase. It compiles incredibly fast and adds minimal binary size overhead to your iOS apps.
-- **Thread-safe by Design**: Safe concurrent access powered by Swift `actor` semantics and internal low-level Reader-Writer locks.
+- **Thread-safe by Design**: Public API access via the `VectorDB` actor guarantees safety by fully serializing requests (no concurrent reads at this layer). The underlying `Engine` implements a genuine multi-reader `ReadWriteLock` designed for potential future parallel read extensions.
 - **Memory Efficient (mmap)**: Backed by Memory-Mapped Files, allowing the OS to seamlessly page large vector datasets in and out of RAM under memory pressure.
 
 ---

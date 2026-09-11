@@ -7,6 +7,8 @@ import Darwin
 public enum WALOpcode: UInt8 {
     case insert = 0
     case delete = 1
+    case updateMetadata = 2
+    case insertWithMetadata = 3
 }
 
 public struct WALRecord {
@@ -15,12 +17,15 @@ public struct WALRecord {
     public let timestamp: UInt64
     /// Only present for inserts. Length matches the dimension of the index.
     public let vectorData: [Float]?
+    /// Only present for updateMetadata.
+    public let metadata: [String: String]?
     
-    public init(opcode: WALOpcode, internalID: Int32, timestamp: UInt64, vectorData: [Float]?) {
+    public init(opcode: WALOpcode, internalID: Int32, timestamp: UInt64, vectorData: [Float]? = nil, metadata: [String: String]? = nil) {
         self.opcode = opcode
         self.internalID = internalID
         self.timestamp = timestamp
         self.vectorData = vectorData
+        self.metadata = metadata
     }
 }
 
@@ -65,9 +70,20 @@ public final class WriteAheadLog {
         var ts = record.timestamp
         data.append(withUnsafeBytes(of: &ts) { Data($0) })
         
-        if record.opcode == .insert, let vData = record.vectorData {
+        if record.opcode == .insert || record.opcode == .insertWithMetadata, let vData = record.vectorData {
             vData.withUnsafeBufferPointer { buf in
                 data.append(buf)
+            }
+        }
+        
+        if record.opcode == .updateMetadata || record.opcode == .insertWithMetadata {
+            if let meta = record.metadata, let encoded = try? JSONEncoder().encode(meta) {
+                var len = Int32(encoded.count)
+                data.append(withUnsafeBytes(of: &len) { Data($0) })
+                data.append(encoded)
+            } else {
+                var len: Int32 = 0
+                data.append(withUnsafeBytes(of: &len) { Data($0) })
             }
         }
         
@@ -78,10 +94,13 @@ public final class WriteAheadLog {
         }
     }
     
+    public private(set) var fsyncCallCount: Int = 0
+    
     public func fsync() throws {
         guard let fh = fileHandle else { throw VectorDBError.ioError(errno: EBADF) }
         do {
             try fh.synchronize()
+            fsyncCallCount += 1
         } catch {
             throw VectorDBError.ioError(errno: EIO)
         }
@@ -126,7 +145,8 @@ public final class WriteAheadLog {
             offset += 8
             
             var vector: [Float]? = nil
-            if opcode == .insert {
+            var metadata: [String: String]? = nil
+            if opcode == .insert || opcode == .insertWithMetadata {
                 let vecBytes = dimension * MemoryLayout<Float>.size
                 guard offset + vecBytes <= data.count else {
                     print("WARNING: Truncated WAL record (Vector) at offset \(offset), assuming mid-write crash.")
@@ -141,7 +161,28 @@ public final class WriteAheadLog {
                 offset += vecBytes
             }
             
-            records.append(WALRecord(opcode: opcode, internalID: id, timestamp: ts, vectorData: vector))
+            if opcode == .updateMetadata || opcode == .insertWithMetadata {
+                guard offset + 4 <= data.count else {
+                    print("WARNING: Truncated WAL record (Metadata Len) at offset \(offset), assuming mid-write crash.")
+                    break
+                }
+                var len: Int32 = 0
+                _ = withUnsafeMutableBytes(of: &len) { data.copyBytes(to: $0, from: offset..<offset+4) }
+                offset += 4
+                
+                guard offset + Int(len) <= data.count else {
+                    print("WARNING: Truncated WAL record (Metadata) at offset \(offset), assuming mid-write crash.")
+                    break
+                }
+                
+                if len > 0 {
+                    let metaDataBlock = data.subdata(in: offset..<offset+Int(len))
+                    metadata = try? JSONDecoder().decode([String: String].self, from: metaDataBlock)
+                }
+                offset += Int(len)
+            }
+            
+            records.append(WALRecord(opcode: opcode, internalID: id, timestamp: ts, vectorData: vector, metadata: metadata))
         }
         
         return records

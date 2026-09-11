@@ -85,4 +85,8 @@ public protocol VectorIndex {
     /// Score convention: higher = more similar, for ALL metrics.
     /// `ef` is the HNSW candidate list size — ignored by FlatIndex.
     func search(query: UnsafePointer<Float>, k: Int, ef: Int?) -> [(id: Int32, score: Float)]
+
+    /// Retrieve the raw vector for a given internal ID.
+    /// - Returns: A copied array of floats, or nil if not found / tombstoned.
+    func getVector(internalID: Int32) -> [Float]?
 }
