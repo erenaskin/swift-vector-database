@@ -15,8 +15,9 @@ This project is built specifically to bring **blazingly fast similarity search**
 
 ## Key Features
 
-- **Blazing Fast (HNSW Indexing)**: Achieves sub-millisecond approximate nearest neighbor (ANN) searches with near-perfect recall (1.0 at 10k vectors).
-- **Hardware Accelerated**: Leverages Apple's `Accelerate` (vDSP/sgemv) framework for highly optimized SIMD vector math, squeezing maximum performance out of Apple Silicon.
+- **Blazing Fast (HNSW Indexing)**: Achieves sub-millisecond approximate nearest neighbor (ANN) searches with near-perfect recall (1.0 at 10k vectors), delivering **0.032ms p50 latency** (`efSearch=10`) on NLP embeddings.
+- **Hardware Accelerated**: Leverages Apple's `Accelerate` framework (`vDSP_dotpr` and `cblas_sgemv`) for highly optimized SIMD vector math, yielding a **~7.6x throughput boost** and **3.56x batch search speedup** over scalar loops.
+- **High-Throughput Graph Construction**: Epoch-based VisitedList optimizations enable **295.3 inserts/sec** at a 500k vector scale (a **3.9x speedup** over the FlatIndex baseline).
 - **Local & Privacy First**: 100% on-device. No network calls, no cloud dependencies. Your users' sensitive AI data never leaves their device.
 - **Zero Dependencies**: A pure Swift codebase. It compiles incredibly fast and adds almost zero binary size overhead to your iOS apps.
 - **Crash-Safe Durability (WAL)**: Features a robust Write-Ahead Log (WAL) with per-record checksums. If your app crashes or the battery dies during an insert, the database automatically recovers all vectors and metadata seamlessly on next launch.

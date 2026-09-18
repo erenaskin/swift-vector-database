@@ -56,14 +56,14 @@ To fulfill the requirements for energy profiling, we have exposed a dedicated `X
 
 ## 3. Raw Benchmark Output
 
-### v2.0 Baseline (Pre-Optimization, Sept 2026)
+### Baseline (Pre-Optimization)
 
 This run captured regressions from the P1 `cblas_sgemv` optimization and was used as the
 baseline for the Instruments profiling session that identified both darboğazlar.
 
 > **Note:** The 29.9x vDSP speedup figure below is inflated by thermal throttling (MacBook Air
 > fan-less cooling under sustained load causes the naive loop to slow to 260ms). The stable
-> vDSP speedup on a non-throttled run is ~7.6x (see v2.1 output below).
+> vDSP speedup on a non-throttled run is ~7.6x (see v2.0.0 output below).
 
 ```text
 Insert 50000 vectors (dim=64): 217059.7ms  (0.2k vectors/s)
@@ -74,7 +74,7 @@ vDSP Speedup: 29.90x (thermal-throttled — naive loop ran at 260ms, not 41ms)
 
 ---
 
-### v2.1 Post-Optimization (Sept 2026) — Scalar Revert + VisitedList
+### Post-Optimization — Scalar Revert + VisitedList
 
 Applied two targeted optimisations based on Instruments Time Profiler data:
 1. **P1 revert**: `cblas_sgemv` (batchDot) in `selectNeighborsHeuristic` replaced with
@@ -153,9 +153,9 @@ efSearch Sweep:
 === All Benchmarks Complete ===
 ```
 
-**Delta (v2.0 → v2.1):**
+**Delta (v1.0.1 → v2.0.0):**
 
-| Metric | v2.0 (Baseline) | v2.1 (Optimized) | Improvement |
+| Metric | v1.0.1 (Baseline) | v2.0.0 (Optimized) | Improvement |
 |---|---|---|---|
 | 500k insert time | 2,278,740 ms | 1,692,958 ms | **−25.7%** |
 | 500k insert rate | 219.4 vec/s | 295.3 vec/s | **+34.8%** |
