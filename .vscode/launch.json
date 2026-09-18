@@ -19,6 +19,26 @@
             "target": "VectorDBBenchmarks",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release VectorDBBenchmarks"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swift-vector-database}",
+            "name": "Debug VectorDatabaseBenchmarks",
+            "target": "VectorDatabaseBenchmarks",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug VectorDatabaseBenchmarks"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swift-vector-database}",
+            "name": "Release VectorDatabaseBenchmarks",
+            "target": "VectorDatabaseBenchmarks",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release VectorDatabaseBenchmarks"
         }
     ]
 }

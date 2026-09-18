@@ -3,59 +3,58 @@ import PackageDescription
 
 // DEPENDENCY POLICY DECISION (recorded per guide §2):
 // We are using a pure-Swift, zero-dependency binary heap implementation
-// (BinaryHeap.swift, ~80 lines, to be written in Phase 4 in Utilities/).
+// (BinaryHeap.swift, Utilities/).
 // Rationale: maximum portability, zero supply-chain risk, no external fetch
 // required for CI, and the implementation is straightforward. The alternative
 // (apple/swift-collections Heap) is pure Swift but adds a dependency we don't
 // need. This decision is final — do not introduce swift-collections later
 // without revisiting this comment.
 //
-// NOTE: -Ounchecked is gated to release config ONLY and must NOT be considered
-// active or relied upon until Phase 1's correctness tests are green. While
-// debugging, you want crashes, not silent corruption.
+// BUILD FLAGS POLICY (fix Y2):
+// This package intentionally declares NO `.unsafeFlags(...)`. SwiftPM refuses to
+// resolve a package that contains unsafe build flags when it is consumed as a
+// versioned dependency ("the target 'VectorDatabase' ... contains unsafe build flags"),
+// which would make this library impossible to add via
+// `.package(url:from:)`. `-Ounchecked` previously lived here; it is now an
+// OPT-IN decision for the consumer instead:
+//
+//     swift build  -c release -Xswiftc -Ounchecked
+//     swift test   -c release -Xswiftc -Ounchecked
+//     swift run    -c release -Xswiftc -Ounchecked VectorDatabaseBenchmarks
+//
+// Everything in the library is written to be correct WITHOUT -Ounchecked; the
+// flag only removes bounds/overflow traps for extra speed in the hot float
+// loops. Note that `precondition`/`assert` are stripped under -Ounchecked, which
+// is why the few checks that must survive a release build (file header size,
+// see PersistenceManager) use `fatalError` rather than `precondition`.
 
 let package = Package(
-    name: "SwiftVectorDB",
+    name: "swift-vector-database",
     platforms: [
         .iOS(.v15),
-        .macOS(.v12)
+        .macOS(.v12),
     ],
     products: [
-        .library(name: "VectorDB", targets: ["VectorDB"]),
+        .library(name: "VectorDatabase", targets: ["VectorDatabase"])
     ],
     dependencies: [
         // Dependency policy: zero-dependency path chosen (see comment above).
-        // swift-collections is kept here as a reference but commented out.
-        // If the policy ever changes, uncomment the line below AND update the
-        // comment at the top of this file before Phase 4 begins.
-        // .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
     ],
     targets: [
         .target(
-            name: "VectorDB",
-            dependencies: [
-                // "Collections", .product(name: "Collections", package: "swift-collections")
-                // Uncomment above only if dependency policy changes to swift-collections.
-            ],
-            swiftSettings: [
-                // -Ounchecked: disables array bounds/overflow checks in release builds.
-                // This gives a meaningful speedup once float operations are in the millions.
-                // DO NOT enable until Phase 1 correctness tests are green — you want
-                // trapping crashes during development, not silent memory corruption.
-                .unsafeFlags(["-Ounchecked"], .when(configuration: .release))
-            ]
+            name: "VectorDatabase",
+            dependencies: []
         ),
         .testTarget(
-            name: "VectorDBTests",
-            dependencies: ["VectorDB"]
+            name: "VectorDatabaseTests",
+            dependencies: ["VectorDatabase"]
         ),
         // Standalone benchmark executable — NOT XCTest.
-        // Lives in Benchmarks/VectorDBBenchmarks/main.swift.
-        // Implementation: Phase 10 (benchmarking & tuning).
+        // Lives in Benchmarks/VectorDatabaseBenchmarks/main.swift.
         .executableTarget(
-            name: "VectorDBBenchmarks",
-            dependencies: ["VectorDB"],
-            path: "Benchmarks/VectorDBBenchmarks"
+            name: "VectorDatabaseBenchmarks",
+            dependencies: ["VectorDatabase"],
+            path: "Benchmarks/VectorDatabaseBenchmarks"
         ),
     ]
 )

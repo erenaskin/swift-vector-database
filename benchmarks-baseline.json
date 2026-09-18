@@ -1,0 +1,10 @@
+{
+  "testRecallAt1k": {
+    "datasetSize": 1000,
+    "recall": 1.0
+  },
+  "testRecallAt10k": {
+    "datasetSize": 10000,
+    "recall": 1.0
+  }
+}

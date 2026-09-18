@@ -1,8 +1,8 @@
-# VectorDB Benchmarks & Tuning
+# VectorDatabase Benchmarks & Tuning
 
-This document tracks the performance, latency, and memory footprint of the `VectorDB` engine, specifically comparing the brute-force `FlatIndex` baseline to our `HNSWIndex` implementation.
+This document tracks the performance, latency, and memory footprint of the `VectorDatabase` engine, specifically comparing the brute-force `FlatIndex` baseline to our `HNSWIndex` implementation.
 
-All metrics below were collected on an Apple Silicon Mac using the `VectorDBBenchmarks` suite compiled in Release mode (`-Ounchecked` optimizations enabled).
+All metrics below were collected on an Apple Silicon Mac using the `VectorDatabaseBenchmarks` suite compiled in Release mode (`-Ounchecked` optimizations enabled).
 
 ## 1. Latency & Recall Tuning (`efSearch` Sweep)
 
@@ -52,12 +52,86 @@ Based on the sweep above, we have updated `HNSWParameters.swift` to use **`efSea
 
 To fulfill the requirements for energy profiling, we have exposed a dedicated `XCTestCase` that runs a sustained CPU workload designed to be profiled directly via Xcode Instruments on a physical iOS device.
 
-**Test Location**: `Tests/VectorDBTests/VectorDBTests.swift` -> `testEnergyProfileHNSWIOSDevice()`
+---
+
+## 3. Raw Benchmark Output (Sept 2026 Run)
+
+Below is the raw output from the `VectorDatabaseBenchmarks` suite. **Note:** This run identified severe performance regressions in HNSW insertion and search latency compared to earlier baselines.
+
+```text
+=== Benchmark: vDSP_dotpr vs. Naive scalar loop (100k × 384-dim) ===
+Vector dim: 384  |  Iterations: 100000
+
+vDSP_dotpr (100k iters): 5.4802ms
+Naive scalar loop (100k iters): 41.5507ms
+
+vDSP result : 64.50087
+Naive result: 64.50093
+Results match: true
+
+>>> Speedup: 7.58x  (naive / vDSP)
+
+=== Batch Benchmark: sgemv vs. looped vDSP_dotpr ===
+cblas_sgemv (1000 vecs, 1000 iters): 8.7365ms
+Looped vDSP_dotpr (1000 vecs, 1000 iters): 36.3243ms
+
+>>> Batch speedup: 4.16x  (looped vDSP / sgemv)
+
+=== Benchmark: 1M inserts for Instruments Leak test ===
+Insert 1,000,000 vectors (dim=384): 418.4964ms
+Storage capacity reached: 1048576 vectors
+Storage count reached: 1000000 vectors
+
+=== Benchmark DoD: 50k insert timing + recall@10 vs. FlatIndex ===
+Generating 50000 unit vectors (dim=64)...
+
+Building HNSWIndex (M=16, efConstruction=200)...
+Insert 50000 vectors (dim=64): 36009.4503ms
+→ Insert time: 36009.5ms  (1.4k vectors/s)
+Building FlatIndex oracle...
+Measuring Recall@10 over 500 queries (efSearch=300)...
+DoD Recall@10 check: ✅ PASS  (actual: 0.9790)
+
+Verifying end-to-end deterministic graph construction...
+→ Determinism (1000-node sample): ✅ byte-identical
+
+=== Benchmark: HNSW Scale Advantage (500k Vectors) ===
+Generating 500000 random vectors (dim=128)...
+Building FlatIndex...
+Building HNSWIndex...
+HNSW Insert 500k vectors: 2338972.9618ms
+HNSW Insert Rate: 213.8 vectors/sec
+
+Running 500 queries to compare speeds...
+→ FlatIndex avg query latency: 4.873 ms
+→ HNSW avg query latency:      1.464 ms
+→ HNSW Speedup at 500k scale: 3.3x FASTER than Flat
+
+=== Benchmark: Hard NLP (Dense Semantic Space - ULTIMATE CONFIG) ===
+Initial RSS: 270 MB
+Generating 10k highly similar sentence embeddings (IT Incident Logs)...
+Dataset generated: 10000 vectors, dim=512. Building FlatIndex...
+Calculating Ground Truth...
+Building HNSWIndex (M=32, efConstruction=300)...
+After Index Builds RSS: 377 MB
+
+efSearch Sweep:
+  efSearch= 10 | Recall@10: 1.0000 | Latency (ms): p50=0.060, p95=0.085
+  efSearch= 20 | Recall@10: 1.0000 | Latency (ms): p50=0.094, p95=0.125
+  efSearch= 40 | Recall@10: 1.0000 | Latency (ms): p50=0.155, p95=0.213
+  efSearch= 80 | Recall@10: 1.0000 | Latency (ms): p50=0.239, p95=0.317
+  efSearch=150 | Recall@10: 1.0000 | Latency (ms): p50=0.400, p95=0.509
+  efSearch=300 | Recall@10: 1.0000 | Latency (ms): p50=0.719, p95=0.892
+
+=== All Benchmarks Complete ===
+```
+
+**Test Location**: `Tests/VectorDatabaseTests/VectorDatabaseTests.swift` -> `testEnergyProfileHNSWIOSDevice()`
 
 ### How to reproduce / measure Energy Impact:
 1. Connect your physical iPhone to your Mac.
 2. Open the Package in Xcode and select your iPhone as the deployment target.
-3. Open the `VectorDBTests` file, click and hold the test diamond next to `testEnergyProfileHNSWIOSDevice()`, and select **"Profile testEnergyProfileHNSWIOSDevice()"** (or `Cmd + I`).
+3. Open the `VectorDatabaseTests` file, click and hold the test diamond next to `testEnergyProfileHNSWIOSDevice()`, and select **"Profile testEnergyProfileHNSWIOSDevice()"** (or `Cmd + I`).
 4. In Instruments, select the **Energy Log** template (or Time Profiler).
 5. Record the session. It runs a 15-second sustained loop of heavy inserts and searches. 
 6. *Note your device's energy impact score and record it here for future regression tracking.*

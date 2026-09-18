@@ -14,14 +14,55 @@ jobs:
     - name: Run Test Suite (with slow tests)
       env:
         RUN_SLOW_TESTS: "1"
-      run: swift test
+      run: swift test --enable-code-coverage
+    - name: Coverage summary
+      # Surfaces the coverage the 146+ tests already earn, without adding a new
+      # dependency (llvm-cov ships with the Xcode toolchain already used above).
+      # The .xctest bundle name is derived at runtime via `find` rather than
+      # hardcoded, since it depends on the package name in Package.swift.
+      run: |
+        set -e
+        XCTEST_BUNDLE=$(find .build/debug -maxdepth 1 -name "*.xctest" -type d | head -n1)
+        BINARY_NAME=$(basename "$XCTEST_BUNDLE" .xctest)
+        xcrun llvm-cov report \
+          "$XCTEST_BUNDLE/Contents/MacOS/$BINARY_NAME" \
+          -instr-profile .build/debug/codecov/default.profdata \
+          -ignore-filename-regex="Tests/|.build/"
 
   tsan-concurrency:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
     - name: Run Concurrency Tests with Thread Sanitizer
-      run: swift test --filter ConcurrencyTests --sanitize=thread
+      env:
+        TSAN_OPTIONS: "halt_on_error=1"
+      run: swift test --filter "ConcurrencyTests|EndToEndTests|VectorDatabaseTests|FileLockTests|SearchBatchTests" --sanitize=thread -Xswiftc -strict-concurrency=complete
+
+  asan-memory-safety:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run Tests with Address Sanitizer
+      run: swift test --sanitize=address
+
+  benchmark-regression:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run Benchmark Regression Test
+      run: ./scripts/benchmark-regression.swift
+  
+  strict-concurrency-build:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build entire package with strict concurrency checking, warnings as errors
+      # -warnings-as-errors catches any new compiler warning (not just strict-
+      # concurrency ones) before merge, instead of letting warnings quietly
+      # accumulate. Combined with the flag already here rather than as a
+      # separate job, since a warnings-as-errors build with a weaker
+      # concurrency mode would be strictly less useful than this one.
+      run: swift build -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
 
   iOS-build:
     runs-on: macos-latest
@@ -32,4 +73,4 @@ jobs:
       with:
         xcode-version: 'latest-stable'
     - name: Build for iOS Simulator
-      run: xcodebuild build -scheme VectorDB -destination 'generic/platform=iOS Simulator'
+      run: xcodebuild build -scheme VectorDatabase -destination 'generic/platform=iOS Simulator'
