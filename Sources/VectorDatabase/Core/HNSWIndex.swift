@@ -186,6 +186,14 @@ public struct HNSWIndex: VectorIndex, @unchecked Sendable {
         setNode(HNSWNode(level: level, vectorSlot: Int32(slot)), for: internalID)
         graphStorage.addNode()
 
+        // VisitedList: allocated ONCE per insert, AFTER nodeSlots has grown to include
+        // the new node. Passed inout to searchLayer so each layer calls nextEpoch() for
+        // an O(1) reset rather than allocating a new Set<Int32> per layer.
+        //
+        // DO NOT lift this to an instance variable — doing so would break lock-free
+        // concurrent reads. See VisitedList.swift for the full thread-safety rationale.
+        var visited = VisitedList(capacity: nodeSlots.count)
+
         var currentNearest = [entryID]
 
         // Phase A: descend from top layer to just above the new node's level,
@@ -196,7 +204,8 @@ public struct HNSWIndex: VectorIndex, @unchecked Sendable {
                     query: vector,
                     entryPoints: currentNearest,
                     ef: 1,
-                    layer: lc
+                    layer: lc,
+                    visited: &visited
                 ).map(\.id)
             }
         }
@@ -208,7 +217,8 @@ public struct HNSWIndex: VectorIndex, @unchecked Sendable {
                 query: vector,
                 entryPoints: currentNearest,
                 ef: params.efConstruction,
-                layer: lc)
+                layer: lc,
+                visited: &visited)
 
             let maxConn = (lc == 0) ? params.Mmax0 : params.M
             let selected = selectNeighborsHeuristic(candidates: candidates, m: maxConn)
@@ -309,20 +319,26 @@ public struct HNSWIndex: VectorIndex, @unchecked Sendable {
 
         let efSearch = effectiveEf(k: k, requested: ef)
 
+        // VisitedList: one allocation per search, shared across all layers via nextEpoch().
+        // search() is a non-mutating func, so this local var does not touch HNSWIndex state.
+        var visited = VisitedList(capacity: nodeSlots.count)
+
         var currentNearest = [entryID]
         for lc in stride(from: entryPointLevel, to: 0, by: -1) {
             currentNearest = searchLayer(
                 query: query,
                 entryPoints: currentNearest,
                 ef: 1,
-                layer: lc
+                layer: lc,
+                visited: &visited
             ).map(\.id)
         }
         let results = searchLayer(
             query: query,
             entryPoints: currentNearest,
             ef: efSearch,
-            layer: 0)
+            layer: 0,
+            visited: &visited)
 
         // §11: filter out tombstoned nodes, then take k
         let liveResults = results.filter { !tombstoned.contains($0.id) }
@@ -390,13 +406,16 @@ public struct HNSWIndex: VectorIndex, @unchecked Sendable {
         query: UnsafePointer<Float>,
         entryPoints: [Int32],
         ef: Int,
-        layer: Int
+        layer: Int,
+        visited: inout VisitedList
     ) -> [Candidate] {
         guard !entryPoints.isEmpty else { return [] }
 
-        var visited = Set<Int32>(entryPoints)
+        // O(1) epoch reset — no allocation, no memset, just a counter increment.
+        visited.nextEpoch()
 
-        // Seed both heaps from the entry points.
+        // Seed the visited tracker and both heaps from the entry points.
+        for ep in entryPoints { visited.insert(ep) }
         let seedCandidates = entryPoints.map { scored($0, query) }
         // candidateHeap: pop CLOSEST (highest score) next — "min-heap by distance" in paper.
         var candidateHeap = BinaryHeap<Candidate>.maxByScore(seedCandidates)
@@ -441,21 +460,20 @@ public struct HNSWIndex: VectorIndex, @unchecked Sendable {
     /// Backfill: if diversity pruning leaves fewer than `m` selected, fills with
     /// the next-closest remaining candidates.
     ///
-    /// PERFORMANCE FIX (P1): Batches distance computation when checking diversity.
-    /// Instead of calling VectorMath.similarity() individually for each
-    /// (candidate, selected) pair, packs selected vectors into a contiguous buffer
-    /// and uses VectorMath.batchDot/batchCosine for a single sgemv call per candidate.
+    /// PERFORMANCE NOTE (P1 revert — see HeuristicPerformanceTests.swift):
+    ///   The previous P1 optimisation used `cblas_sgemv` (batchDot) for diversity checks.
+    ///   Micro-benchmarks at m=16/32/64 showed scalar `vDSP_dotpr` is 1.4–1.7x faster
+    ///   for all batch sizes typical of this function. `cblas_sgemv` dispatch overhead
+    ///   dominates when batch count < ~100. No threshold is needed; full scalar path.
+    ///
+    ///   M values beyond 128 may eventually tip the balance back to sgemv, but the
+    ///   library's target domain (on-device, up to hundreds of thousands of vectors)
+    ///   makes such configuration unlikely. This is a known, accepted trade-off.
     private func selectNeighborsHeuristic(candidates: [Candidate], m: Int) -> [Candidate] {
         let sorted = candidates.sorted { $0.score > $1.score }  // closest first
         var selected: [Candidate] = []
         selected.reserveCapacity(m)
         var selectedIDs = Set<Int32>()
-
-        // P1: Pre-allocate a contiguous buffer for selected vectors to enable batch distance.
-        // Max size is m vectors × dimension floats.
-        let batchBuffer = UnsafeMutablePointer<Float>.allocate(capacity: m * dimension)
-        defer { batchBuffer.deallocate() }
-        var selectedCount = 0
 
         var startIndex = 0
         while startIndex < sorted.count, selected.count < m {
@@ -466,41 +484,24 @@ public struct HNSWIndex: VectorIndex, @unchecked Sendable {
             let candidateVec = vectorStorage.pointer(toSlot: Int(candidateNode.vectorSlot))
 
             let isDiverse: Bool
-            if selectedCount == 0 {
+            if selected.isEmpty {
                 isDiverse = true
             } else {
-                // P1: Batch distance computation — one sgemv call for all selected vectors
-                switch metric {
-                case .cosine, .dotProduct:
-                    let distances = VectorMath.batchDot(
-                        query: candidateVec,
-                        vectors: UnsafePointer(batchBuffer),
-                        count: selectedCount,
-                        dim: dimension
-                    )
-                    isDiverse = distances.allSatisfy { candidate.score > $0 }
-                case .euclidean:
-                    // For euclidean, we need individual distance checks since
-                    // batchEuclideanSquared requires squaredNorms which we don't maintain here.
-                    isDiverse = selected.allSatisfy { existing in
-                        guard let existingNode = node(for: existing.id) else { return true }
-                        let existingVec = vectorStorage.pointer(
-                            toSlot: Int(existingNode.vectorSlot))
-                        let distToExisting = VectorMath.similarity(
-                            candidateVec, existingVec,
-                            dimension, metric: metric)
-                        return candidate.score > distToExisting
-                    }
+                // Scalar: one vDSP_dotpr / vDSP_distancesq per already-selected neighbor.
+                // Benchmarks show this is 1.4–1.7x faster than cblas_sgemv for m <= 64.
+                isDiverse = selected.allSatisfy { existing in
+                    guard let existingNode = node(for: existing.id) else { return true }
+                    let existingVec = vectorStorage.pointer(
+                        toSlot: Int(existingNode.vectorSlot))
+                    let distToExisting = VectorMath.similarity(
+                        candidateVec, existingVec, dimension, metric: metric)
+                    return candidate.score > distToExisting
                 }
             }
 
-            if isDiverse || selected.isEmpty {
+            if isDiverse {
                 selected.append(candidate)
                 selectedIDs.insert(candidate.id)
-                // Copy this vector into the batch buffer for future diversity checks
-                let dest = batchBuffer + selectedCount * dimension
-                dest.update(from: candidateVec, count: dimension)
-                selectedCount += 1
             }
         }
 
