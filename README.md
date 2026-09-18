@@ -1,6 +1,5 @@
 # Pure Swift Vector Database
 
-[![CI](https://github.com/erenaskin/pure-swift-vector-database/actions/workflows/swift.yml/badge.svg)](https://github.com/erenaskin/pure-swift-vector-database/actions/workflows/swift.yml)
 ![Swift 5.9+](https://img.shields.io/badge/Swift-5.9%2B-orange)
 ![Platforms](https://img.shields.io/badge/Platforms-iOS%2015%2B%20%7C%20macOS%2012%2B-blue)
 ![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-brightgreen)
