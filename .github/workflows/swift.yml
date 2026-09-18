@@ -21,13 +21,49 @@ jobs:
       # The .xctest bundle name is derived at runtime via `find` rather than
       # hardcoded, since it depends on the package name in Package.swift.
       run: |
-        set -e
-        XCTEST_BUNDLE=$(find .build/debug -maxdepth 1 -name "*.xctest" -type d | head -n1)
-        BINARY_NAME=$(basename "$XCTEST_BUNDLE" .xctest)
+        set -euo pipefail
+
+        XCTEST_BUNDLE="$(
+          find .build \
+            -type d \
+            -name "*.xctest" \
+            -print -quit
+        )"
+
+        if [[ -z "$XCTEST_BUNDLE" ]]; then
+          echo "Unable to locate the XCTest bundle"
+          find .build -maxdepth 5 -print
+          exit 1
+        fi
+
+        TEST_BINARY="$(
+          find "$XCTEST_BUNDLE/Contents/MacOS" \
+            -type f \
+            -perm -111 \
+            -print -quit
+        )"
+
+        if [[ -z "$TEST_BINARY" ]]; then
+          echo "Unable to locate the test executable in $XCTEST_BUNDLE"
+          exit 1
+        fi
+
+        PROFdata="$(
+          find .build \
+            -type f \
+            -path "*/codecov/default.profdata" \
+            -print -quit
+        )"
+
+        if [[ -z "$PROFdata" ]]; then
+          echo "Unable to locate default.profdata"
+          exit 1
+        fi
+
         xcrun llvm-cov report \
-          "$XCTEST_BUNDLE/Contents/MacOS/$BINARY_NAME" \
-          -instr-profile .build/debug/codecov/default.profdata \
-          -ignore-filename-regex="Tests/|.build/"
+          "$TEST_BINARY" \
+          -instr-profile "$PROFdata" \
+          -ignore-filename-regex='Tests/|\.build/'
 
   tsan-concurrency:
     runs-on: macos-latest

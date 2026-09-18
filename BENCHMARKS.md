@@ -62,23 +62,23 @@ Below is the raw output from the `VectorDatabaseBenchmarks` suite. **Note:** Thi
 === Benchmark: vDSP_dotpr vs. Naive scalar loop (100k × 384-dim) ===
 Vector dim: 384  |  Iterations: 100000
 
-vDSP_dotpr (100k iters): 5.4802ms
-Naive scalar loop (100k iters): 41.5507ms
+vDSP_dotpr (100k iters): 8.7242ms
+Naive scalar loop (100k iters): 260.8361ms
 
 vDSP result : 64.50087
 Naive result: 64.50093
 Results match: true
 
->>> Speedup: 7.58x  (naive / vDSP)
+>>> Speedup: 29.90x  (naive / vDSP)
 
 === Batch Benchmark: sgemv vs. looped vDSP_dotpr ===
-cblas_sgemv (1000 vecs, 1000 iters): 8.7365ms
-Looped vDSP_dotpr (1000 vecs, 1000 iters): 36.3243ms
+cblas_sgemv (1000 vecs, 1000 iters): 42.6031ms
+Looped vDSP_dotpr (1000 vecs, 1000 iters): 348.0051ms
 
->>> Batch speedup: 4.16x  (looped vDSP / sgemv)
+>>> Batch speedup: 8.17x  (looped vDSP / sgemv)
 
 === Benchmark: 1M inserts for Instruments Leak test ===
-Insert 1,000,000 vectors (dim=384): 418.4964ms
+Insert 1,000,000 vectors (dim=384): 2874.5524ms
 Storage capacity reached: 1048576 vectors
 Storage count reached: 1000000 vectors
 
@@ -86,8 +86,8 @@ Storage count reached: 1000000 vectors
 Generating 50000 unit vectors (dim=64)...
 
 Building HNSWIndex (M=16, efConstruction=200)...
-Insert 50000 vectors (dim=64): 36009.4503ms
-→ Insert time: 36009.5ms  (1.4k vectors/s)
+Insert 50000 vectors (dim=64): 217059.6634ms
+→ Insert time: 217059.7ms  (0.2k vectors/s)
 Building FlatIndex oracle...
 Measuring Recall@10 over 500 queries (efSearch=300)...
 DoD Recall@10 check: ✅ PASS  (actual: 0.9790)
@@ -99,29 +99,29 @@ Verifying end-to-end deterministic graph construction...
 Generating 500000 random vectors (dim=128)...
 Building FlatIndex...
 Building HNSWIndex...
-HNSW Insert 500k vectors: 2338972.9618ms
-HNSW Insert Rate: 213.8 vectors/sec
+HNSW Insert 500k vectors: 2278740.7170ms
+HNSW Insert Rate: 219.4 vectors/sec
 
 Running 500 queries to compare speeds...
-→ FlatIndex avg query latency: 4.873 ms
-→ HNSW avg query latency:      1.464 ms
-→ HNSW Speedup at 500k scale: 3.3x FASTER than Flat
+→ FlatIndex avg query latency: 4.590 ms
+→ HNSW avg query latency:      1.247 ms
+→ HNSW Speedup at 500k scale: 3.7x FASTER than Flat
 
 === Benchmark: Hard NLP (Dense Semantic Space - ULTIMATE CONFIG) ===
-Initial RSS: 270 MB
+Initial RSS: 624 MB
 Generating 10k highly similar sentence embeddings (IT Incident Logs)...
 Dataset generated: 10000 vectors, dim=512. Building FlatIndex...
 Calculating Ground Truth...
 Building HNSWIndex (M=32, efConstruction=300)...
-After Index Builds RSS: 377 MB
+After Index Builds RSS: 668 MB
 
 efSearch Sweep:
-  efSearch= 10 | Recall@10: 1.0000 | Latency (ms): p50=0.060, p95=0.085
-  efSearch= 20 | Recall@10: 1.0000 | Latency (ms): p50=0.094, p95=0.125
-  efSearch= 40 | Recall@10: 1.0000 | Latency (ms): p50=0.155, p95=0.213
-  efSearch= 80 | Recall@10: 1.0000 | Latency (ms): p50=0.239, p95=0.317
-  efSearch=150 | Recall@10: 1.0000 | Latency (ms): p50=0.400, p95=0.509
-  efSearch=300 | Recall@10: 1.0000 | Latency (ms): p50=0.719, p95=0.892
+  efSearch= 10 | Recall@10: 1.0000 | Latency (ms): p50=0.045, p95=0.058
+  efSearch= 20 | Recall@10: 1.0000 | Latency (ms): p50=0.071, p95=0.091
+  efSearch= 40 | Recall@10: 1.0000 | Latency (ms): p50=0.121, p95=0.170
+  efSearch= 80 | Recall@10: 1.0000 | Latency (ms): p50=0.192, p95=0.251
+  efSearch=150 | Recall@10: 1.0000 | Latency (ms): p50=0.313, p95=0.407
+  efSearch=300 | Recall@10: 1.0000 | Latency (ms): p50=0.547, p95=0.713
 
 === All Benchmarks Complete ===
 ```
